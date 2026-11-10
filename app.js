@@ -414,18 +414,24 @@
   // Budget
   function budget() {
     const k = S.month;
-    const prev = [1, 2, 3].map(n => monthTotals(shiftMonth(k, -n)));
+    const prevKeys = [1, 2, 3].map(n => shiftMonth(k, -n));
+    const prev = prevKeys.map(monthTotals);
+    // Only average months your imports fully cover (a statement that starts Sep 30 doesn't count as September).
+    const earliest = S.transactions.reduce((m, t) => !m || t.date < m ? t.date : m, '');
+    const withData = prev.filter((t, i) => t.count > 0 && earliest && earliest <= prevKeys[i] + '-05');
+    const lastLabel = monthLabel(shiftMonth(k, -1)).split(' ')[0];
     let html = `<h2>Budget for ${esc(monthLabel(k))}</h2>
       <p class="sub">The monthly amount carries into every month. Change "This month" when one month is different, like December gifts or a three-paycheck month.</p>`;
     const groups = {};
     S.categories.filter(c => !c.archived).forEach(c => (groups[c.grp] = groups[c.grp] || []).push(c));
     let totalB = 0, totalI = 0;
     for (const [g, cs] of Object.entries(groups)) {
-      html += `<h3>${esc(g)}</h3><div class="scroll"><table class="bt"><thead><tr><th>Category</th><th>Group</th><th class="num">Monthly</th><th class="num">This month</th><th class="num">3-month avg</th><th></th></tr></thead><tbody>`;
+      html += `<h3>${esc(g)}</h3><div class="scroll"><table class="bt"><thead><tr><th>Category</th><th>Group</th><th class="num">Monthly</th><th class="num">This month</th><th class="num">${esc(lastLabel)}</th><th class="num">${withData.length < 3 && withData.length ? `${withData.length}-month avg` : '3-month avg'}</th><th></th></tr></thead><tbody>`;
       for (const c of cs) {
         const o = S.budgets.find(b => b.month === k && b.category_id === c.id);
-        const avg = prev.reduce((s, t) => s + (t.byCat[c.id] || 0), 0) / 3;
-        const shown = c.kind === 'expense' ? -avg : avg;
+        const sign = c.kind === 'expense' ? -1 : 1;
+        const avg = withData.length ? withData.reduce((s, t) => s + (t.byCat[c.id] || 0), 0) / withData.length * sign : 0;
+        const last = prev[0].count ? (prev[0].byCat[c.id] || 0) * sign : null;
         if (c.kind === 'expense') totalB += budgetFor(c, k);
         if (c.kind === 'income') totalI += budgetFor(c, k);
         html += `<tr data-cid="${esc(c.id)}">
@@ -433,7 +439,8 @@
           <td><input type="text" data-f="grp" value="${esc(c.grp)}" aria-label="Group" list="grpList"></td>
           <td class="num">${c.kind !== 'transfer' ? `<input type="number" step="1" min="0" data-f="budget" value="${c.budget || ''}" placeholder="0" aria-label="${c.kind === 'income' ? 'Expected each month' : 'Monthly budget'}">` : '<span class="muted small">Not counted</span>'}</td>
           <td class="num">${c.kind !== 'transfer' ? `<input type="number" step="1" min="0" data-f="override" value="${o ? o.amount : ''}" placeholder="${c.budget || 0}" aria-label="This month only">` : ''}</td>
-          <td class="num money muted">${shown ? fmt0(shown) : '—'}</td>
+          <td class="num money">${last == null ? '<span class="muted">—</span>' : fmt0(last)}</td>
+          <td class="num money muted">${avg ? fmt0(avg) : '—'}</td>
           <td><button class="btn quiet danger" data-archive title="Hide this category">Hide</button></td>
         </tr>`;
       }
