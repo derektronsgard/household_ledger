@@ -28,8 +28,10 @@ create table if not exists rules (
   pattern     text not null,                    -- text to look for in the description
   category_id text not null,
   direction   text not null default 'any' check (direction in ('any','in','out')),
+  display_name text not null default '',        -- optional name to show, e.g. "Amazon"
   created_at  timestamptz not null default now()
 );
+alter table rules add column if not exists display_name text not null default '';
 
 create table if not exists budgets (
   id          text primary key,                 -- "YYYY-MM|category_id"
@@ -145,3 +147,11 @@ insert into rules (id, pattern, category_id, direction) values
   -- Derek's pay arrives as a transfer from his Everyday Checking account
   ('r-paytransfer','TRANSFER FROM TRONSGARD D EVERYDAY CHECKING', 'paychecks', 'in')
 on conflict (id) do nothing;
+
+-- Friendlier names for a few common stores.
+update rules set display_name = 'Amazon'       where id = 'r-amazon'    and display_name = '';
+update rules set display_name = 'Amazon Prime' where id = 'r-prime'     and display_name = '';
+update rules set display_name = 'Target'       where id = 'r-target'    and display_name = '';
+update rules set display_name = 'Kwik Trip'    where id = 'r-kwik'      and display_name = '';
+update rules set display_name = 'Good Shepherd giving' where id = 'r-gscontrib' and display_name = '';
+update rules set display_name = 'Mortgage'     where id = 'r-mortgage'  and display_name = '';

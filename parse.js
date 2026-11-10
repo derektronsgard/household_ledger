@@ -263,6 +263,7 @@
       s = (raw.slice(0, 16).trim() + ' ' + raw.slice(17, 27).trim()).replace(/\s+/g, ' ');
     }
     if (/^AMAZON (RETA|MARK|MKTPL)/.test(s)) return 'AMAZON';
+    if (/^AMAZON PRIME/.test(s)) return 'AMAZON PRIME';
     s = s.replace(/\b(REF\s?#.*|XXXX+\d+.*| ON \d{2}\/\d{2}\/\d{2}.*)$/, '');
     s = s.replace(/^(RECURRING )?(PURCHASE|PAYMENT|PURCHASE INTL|PURCHASE RETURN|NON-WF ATM WITHDRAWAL|MONEY TRANSFER) (AUTHORIZED|AUTHORIZED ON|ON)?\s*(ON )?\d{1,2}\/\d{1,2}\s*/, '');
     s = s.replace(/\b[SP]\d{9,}\b/g, ' ').replace(/\bCARD \d{4}\b/g, ' ').replace(/\b(REF|ID|CO ID|ENTRY|IND ID|INDN)[: #]*[A-Z0-9]+\b/g, ' ');

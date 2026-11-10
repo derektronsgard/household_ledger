@@ -52,7 +52,10 @@
   }
   async function save(table, rows, opts = {}) {
     try { await api({ action: 'upsert', table, rows, ignoreDuplicates: !!opts.ignoreDuplicates }); }
-    catch (e) { toast('Not saved: ' + esc(e.message), [], 8000); throw e; }
+    catch (e) {
+      const msg = /display_name/.test(e.message) ? 'The database needs a one-line update for rule names. See "Update the database" in the README.' : e.message;
+      toast('Not saved: ' + esc(msg), [], 10000); throw e;
+    }
   }
   async function del(table, ids) {
     try { await api({ action: 'delete', table, ids }); }
@@ -60,11 +63,11 @@
   }
   const txRow = t => ({ id: t.id, account: t.account, date: t.date, description: t.description, amount: +t.amount, category_id: t.category_id || null, note: t.note || '' });
   const catRow = c => ({ id: c.id, name: c.name, grp: c.grp, kind: c.kind, budget: +c.budget || 0, sort: +c.sort || 0, archived: !!c.archived });
-  const ruleRow = r => ({ id: r.id, pattern: r.pattern, category_id: r.category_id, direction: r.direction || 'any' });
+  const ruleRow = r => ({ id: r.id, pattern: r.pattern, category_id: r.category_id, direction: r.direction || 'any', display_name: r.display_name || '' });
 
   async function loadAll() {
     const d = await api({ action: 'load' });
-    S.categories = d.categories; S.rules = d.rules; S.budgets = d.budgets;
+    S.categories = d.categories; S.rules = d.rules.map(r => ({ ...r, display_name: r.display_name || '' })); S.budgets = d.budgets;
     S.transactions = d.transactions.map(t => ({ ...t, amount: +t.amount }));
     S.categories.forEach(c => c.budget = +c.budget);
     S.budgets.forEach(b => b.amount = +b.amount);
@@ -73,35 +76,44 @@
   }
 
   // ---------- categorizing ----------
-  function ruleFor(t) {
-    const d = P.normDesc(t.description) + ' | ' + P.cleanDesc(t.description);
-    const hits = S.rules.filter(r => {
-      if (!r.pattern || !d.includes(r.pattern.toUpperCase())) return false;
-      if (r.direction === 'in' && t.amount <= 0) return false;
-      if (r.direction === 'out' && t.amount >= 0) return false;
-      return catById(r.category_id);
-    });
-    hits.sort((a, b) => b.pattern.length - a.pattern.length);
-    return hits[0] ? hits[0].category_id : null;
+  // Rules match ignoring capitals, spaces and punctuation, so "dominos" finds DOMINO'S and "amazon" finds AMAZON RETA*.
+  const squash = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  function txKey(t) { return t._sq && t._sqFor === t.description ? t._sq : (t._sqFor = t.description, t._sq = squash(t.description)); }
+  function ruleMatches(r, t) {
+    const p = squash(r.pattern);
+    if (!p || !txKey(t).includes(p)) return false;
+    if (r.direction === 'in' && t.amount <= 0) return false;
+    if (r.direction === 'out' && t.amount >= 0) return false;
+    return true;
   }
+  // The most specific (longest) matching rule wins.
+  function winningRule(t) {
+    let best = null, bestLen = 0;
+    for (const r of S.rules) {
+      if (!catById(r.category_id) || !ruleMatches(r, t)) continue;
+      const len = squash(r.pattern).length;
+      if (len > bestLen) { best = r; bestLen = len; }
+    }
+    return best;
+  }
+  function ruleFor(t) { const r = winningRule(t); return r ? r.category_id : null; }
+  function isCardPmt(t) { return P.isCardPayment(t, (ACCOUNTS[t.account] || {}).type); }
   function autoCategory(t) {
-    const type = (ACCOUNTS[t.account] || {}).type;
-    if (P.isCardPayment(t, type) && catById('cc-payment')) return 'cc-payment';
+    if (isCardPmt(t) && catById('cc-payment')) return 'cc-payment';
     const byRule = ruleFor(t); // a rule can claim a transfer, e.g. a paycheck moved in from another account
     if (byRule) return byRule;
     if (P.isTransfer(t) && catById('transfer')) return 'transfer';
-    return bankCategoryFor(t);
+    return null; // the banks' own categories are ignored on purpose
   }
-  // Capital One's own category column, used only when no rule matches.
-  const BANK_CATEGORIES = {
-    'dining': 'dining', 'gas/automotive': 'gas', 'insurance': 'insurance', 'fee/interest charge': 'fees',
-    'phone/cable': 'phone-internet', 'internet': 'subscriptions', 'entertainment': 'entertainment',
-    'other travel': 'travel', 'airfare': 'travel', 'lodging': 'travel', 'car rental': 'travel',
-    'health care': 'health', 'healthcare': 'health', 'utilities': 'utilities',
-  };
-  function bankCategoryFor(t) {
-    const id = BANK_CATEGORIES[String(t.bankCategory || '').toLowerCase()];
-    return id && catById(id) && !catById(id).archived ? id : null;
+  // The name shown for a transaction: a rule's "Show as" name if one matches, otherwise the cleaned-up bank text.
+  function displayName(t) {
+    let best = null, bestLen = 0;
+    for (const r of S.rules) {
+      if (!r.display_name || !ruleMatches(r, t)) continue;
+      const len = squash(r.pattern).length;
+      if (len > bestLen) { best = r; bestLen = len; }
+    }
+    return best ? best.display_name : P.prettyDesc(t.description);
   }
 
   // ---------- month math ----------
@@ -195,6 +207,7 @@
         b.innerHTML = 'Transactions' + (n ? `<span class="badge" title="Need a category">${n}</span>` : '');
       }
     });
+    if (typeof comboClose === 'function' && CB.input) { listEl.hidden = true; CB.input = null; CB.wrap = null; }
     const v = $('#view');
     v.innerHTML = ({ overview, transactions, import: importView, budget, rules })[S.tab]();
     afterRender[S.tab] && afterRender[S.tab]();
@@ -205,6 +218,16 @@
     S.categories.filter(c => includeArchived || !c.archived || c.id === selected).forEach(c => (groups[c.grp] = groups[c.grp] || []).push(c));
     return `<option value="">${esc(blank)}</option>` + Object.entries(groups).map(([g, cs]) =>
       `<optgroup label="${esc(g)}">${cs.map(c => `<option value="${esc(c.id)}" ${c.id === selected ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</optgroup>`).join('');
+  }
+
+  // Category box you can type in (with a ▾ to see the whole list).
+  function combo(kind, selected, blank = 'Choose a category…') {
+    const c = catById(selected);
+    return `<div class="combo" data-combo="${kind}" data-value="${esc(selected || '')}">
+      <input type="text" class="combo-input ${c ? '' : 'empty'}" value="${esc(c ? c.name : '')}" placeholder="${esc(blank)}"
+        role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="comboList" aria-label="Category" autocomplete="off" spellcheck="false">
+      <button type="button" class="combo-btn" tabindex="-1" aria-label="Show all categories">▾</button>
+    </div>`;
   }
 
   // Overview
@@ -284,9 +307,10 @@
     const f = S.filter; const q = f.q.trim().toUpperCase();
     return S.transactions.filter(t =>
       (f.allMonths || t.date.startsWith(S.month)) &&
+      (!f.rule || (S.rules.find(r => r.id === f.rule) && winningRule(t) === S.rules.find(r => r.id === f.rule))) &&
       (!f.account || t.account === f.account) &&
       (!f.cat || (f.cat === '__none' ? !catById(t.category_id) : t.category_id === f.cat)) &&
-      (!q || P.normDesc(t.description).includes(q) || P.prettyDesc(t.description).toUpperCase().includes(q) || (t.note || '').toUpperCase().includes(q) || String(Math.abs(t.amount)).includes(q))
+      (!q || P.normDesc(t.description).includes(q) || displayName(t).toUpperCase().includes(q) || (t.note || '').toUpperCase().includes(q) || String(Math.abs(t.amount)).includes(q))
     ).sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
   }
   function transactions() {
@@ -299,19 +323,20 @@
         <select id="facct"><option value="">Both accounts</option>${Object.entries(ACCOUNTS).map(([id, a]) => `<option value="${id}" ${f.account === id ? 'selected' : ''}>${a.name}</option>`).join('')}</select>
         <select id="fcat"><option value="">All categories</option><option value="__none" ${f.cat === '__none' ? 'selected' : ''}>Needs a category</option>${catOptions(f.cat, { blank: '', includeArchived: true }).replace('<option value=""></option>', '')}</select>
       </div>
+      ${f.rule && S.rules.find(r => r.id === f.rule) ? `<div class="notice"><span>Showing every transaction the rule <b>${esc(S.rules.find(r => r.id === f.rule).pattern)}</b> applies to, across all months.</span><button class="btn" id="clearRule">Show all</button></div>` : ''}
       <div class="row" style="margin-bottom:12px">
         <label class="small"><input type="checkbox" id="fall" ${f.allMonths ? 'checked' : ''}> Search every month</label>
         <span style="flex:1"></span>
-        <button class="btn quiet" id="rerun">Apply rules to uncategorized</button>
+        <button class="btn quiet" id="rerun">Apply all rules</button>
       </div>`;
     if (!list.length) return html + `<div class="txlist"><div class="daygap">Nothing matches. ${S.transactions.length ? 'Try another month or clear the filters.' : '<a href="#" data-go="import">Import a statement</a> to get started.'}</div></div>`;
     html += `<div class="txlist">` + list.slice(0, 600).map(t => {
       const open = S.openTx === t.id;
       return `<div class="tx ${(ACCOUNTS[t.account] || {}).highlight ? 'tx-card' : ''}" data-id="${esc(t.id)}">
         <span class="tx-date">${shortDate(t.date)}${f.allMonths ? ' ' + t.date.slice(0, 4) : ''}</span>
-        <button class="tx-payee" data-toggle aria-expanded="${open}">${esc(P.prettyDesc(t.description))}<span class="tx-acct">${esc((ACCOUNTS[t.account] || {}).name || t.account)}${t.note ? ', ' + esc(t.note) : ''}</span></button>
+        <button class="tx-payee" data-toggle aria-expanded="${open}">${esc(displayName(t))}<span class="tx-acct">${esc((ACCOUNTS[t.account] || {}).name || t.account)}${t.note ? ', ' + esc(t.note) : ''}</span></button>
         <span class="money ${t.amount > 0 ? 'in' : ''}">${fmt(t.amount)}</span>
-        <select data-setcat class="${catById(t.category_id) ? '' : 'empty'}" aria-label="Category">${catOptions(t.category_id)}</select>
+        ${combo('tx', t.category_id)}
         ${open ? `<div class="tx-more">
           <div>Bank description: <code>${esc(t.description)}</code></div>
           <div class="row"><input type="text" data-note placeholder="Add a note" value="${esc(t.note || '')}" style="flex:1">
@@ -358,9 +383,9 @@
         ${pv.rows.map((r, i) => `<tr data-i="${i}">
           <td><input type="checkbox" data-inc ${r.include ? 'checked' : ''} ${r.status === 'dup' ? 'disabled' : ''} aria-label="Include"></td>
           <td class="small">${shortDate(r.date)}</td>
-          <td>${esc(P.prettyDesc(r.description))}</td>
+          <td>${esc(displayName(r))}</td>
           <td class="num"><button class="flip money ${r.amount > 0 ? 'in' : ''}" data-flip title="Flip money in / out">${fmt(r.amount)}</button></td>
-          <td><select data-pvcat aria-label="Category">${catOptions(r.category_id, { blank: 'Leave for later' })}</select></td>
+          <td>${combo('pv', r.category_id, 'Leave for later')}</td>
           <td>${r.status === 'dup' ? '<span class="tag dup">Already in</span>' : r.status === 'maybe' ? '<span class="tag maybe" title="Same date, amount and account as one already in the ledger">Maybe a duplicate</span>' : '<span class="tag new">New</span>'}</td>
         </tr>`).join('')}</tbody></table></div>` : `<p class="muted">No transactions were found. Make sure each row has a date, a description and an amount.</p>`}
       </div>`;
@@ -433,21 +458,38 @@
   }
 
   // Rules
+  function ruleCounts() {
+    const n = {};
+    for (const t of S.transactions) { if (isCardPmt(t)) continue; const r = winningRule(t); if (r) n[r.id] = (n[r.id] || 0) + 1; }
+    return n;
+  }
   function rules() {
-    const rs = [...S.rules].sort((a, b) => a.pattern.localeCompare(b.pattern));
+    const rs = [...S.rules].sort((a, b) => (a.display_name || a.pattern).localeCompare(b.display_name || b.pattern));
+    const counts = ruleCounts();
+    const dirSel = (v, attr) => `<select ${attr} aria-label="Applies to"><option value="any" ${v === 'any' ? 'selected' : ''}>In or out</option><option value="out" ${v === 'out' ? 'selected' : ''}>Money out</option><option value="in" ${v === 'in' ? 'selected' : ''}>Money in</option></select>`;
     return `<h2>Rules</h2>
-      <p class="sub">When a bank description contains the text on the left, new transactions get that category automatically. Longer, more specific text wins.</p>
-      <div class="panel" style="margin-bottom:18px"><div class="row">
-        <input type="text" id="nrPat" placeholder="Text to look for, like KWIK TRIP" style="flex:1">
-        <select id="nrDir"><option value="any">Money in or out</option><option value="out">Money out only</option><option value="in">Money in only</option></select>
-        <select id="nrCat">${catOptions('')}</select>
-        <button class="btn primary" id="nrAdd">Add rule</button>
-      </div></div>
-      ${rs.length ? `<div class="scroll"><table><thead><tr><th>Description contains</th><th>Applies to</th><th>Category</th><th></th></tr></thead><tbody>
-      ${rs.map(r => `<tr data-rid="${esc(r.id)}"><td><b>${esc(r.pattern)}</b></td><td class="small muted">${{ any: 'In or out', in: 'Money in', out: 'Money out' }[r.direction] || 'In or out'}</td>
-        <td><select data-rcat aria-label="Category">${catOptions(r.category_id)}</select></td><td><button class="btn quiet danger" data-rdel>Delete</button></td></tr>`).join('')}
+      <p class="sub">A rule sets the category, and if you like the name shown, for every transaction whose bank description contains its text, past and future. Capitals, spaces and punctuation don't matter, so "amazon" catches AMAZON RETA*, Amazon Mktpl and AMAZON.COM. When two rules match, the longer text wins.</p>
+      <div class="panel" style="margin-bottom:18px">
+        <div class="rule-new">
+          <label>Description contains<input type="text" id="nrPat" placeholder="amazon" autocomplete="off"></label>
+          <label>Show as<input type="text" id="nrName" placeholder="Optional, like Amazon" autocomplete="off"></label>
+          <label>Applies to${dirSel('out', 'id="nrDir"')}</label>
+          <label>Category${combo('nr', '').replace('combo-input empty', 'combo-input')}</label>
+          <button class="btn primary" id="nrAdd">Add rule</button>
+        </div>
+        <p class="small muted" id="nrCount" style="margin:8px 0 0">&nbsp;</p>
+      </div>
+      ${rs.length ? `<div class="scroll"><table class="rt"><thead><tr><th>Description contains</th><th>Show as</th><th>Applies to</th><th>Category</th><th class="num">Matches</th><th></th></tr></thead><tbody>
+      ${rs.map(r => `<tr data-rid="${esc(r.id)}">
+        <td><input type="text" data-rf="pattern" value="${esc(r.pattern)}" aria-label="Description contains"></td>
+        <td><input type="text" data-rf="display_name" value="${esc(r.display_name || '')}" placeholder="Bank's name" aria-label="Show as"></td>
+        <td>${dirSel(r.direction || 'any', 'data-rf="direction"')}</td>
+        <td>${combo('rule', r.category_id)}</td>
+        <td class="num"><a href="#" data-rsee="${esc(r.id)}">${counts[r.id] || 0}</a></td>
+        <td><button class="btn quiet danger" data-rdel>Delete</button></td></tr>`).join('')}
       </tbody></table></div>` : '<p class="muted">No rules yet.</p>'}
-      <div style="margin-top:18px"><button class="btn" id="rerun">Apply rules to uncategorized</button></div>`;
+      <div class="row" style="margin-top:18px"><button class="btn" id="rerun">Apply all rules to every transaction</button>
+      <span class="small muted">Use this after importing older statements or changing several rules.</span></div>`;
   }
 
   const afterRender = {
@@ -462,33 +504,51 @@
     if (!catId) return;
     const key = P.merchantKey(t.description);
     if (!key || ruleFor(t) === catId) return;
-    const others = S.transactions.filter(x => x.id !== t.id && !catById(x.category_id) && (P.normDesc(x.description) + ' | ' + P.cleanDesc(x.description)).includes(key));
+    const probe = { pattern: key, direction: t.amount > 0 ? 'in' : 'out' };
+    const others = S.transactions.filter(x => x.id !== t.id && x.category_id !== catId && !isCardPmt(x) && ruleMatches(probe, x)).length;
     const c = catById(catId);
-    toast(`Always put <b>${esc(P.prettyDesc(key))}</b> in ${esc(c.name)}?${others.length ? ` ${others.length} more waiting.` : ''}`, [
-      { label: 'Yes, remember', run: () => addRule(key, catId, t.amount > 0 ? 'in' : 'out') },
+    const name = displayName(t);
+    toast(`Always put <b>${esc(name)}</b> in ${esc(c.name)}?${others ? ` ${others} other${others === 1 ? '' : 's'} will change too.` : ''}`, [
+      { label: 'Yes, make a rule', run: () => addRule(key, catId, probe.direction, name) },
       { label: 'Not now', quiet: true, run: () => {} },
     ], 9000);
   }
-  async function addRule(pattern, catId, direction = 'any') {
-    pattern = pattern.trim().toUpperCase();
-    if (!pattern || !catId) return toast('A rule needs some text and a category.');
-    const r = { id: 'r' + P.cyrb53(pattern + '|' + direction + '|' + Date.now()), pattern, category_id: catId, direction };
+  async function addRule(pattern, catId, direction = 'any', displayName = '') {
+    pattern = pattern.trim();
+    if (!squash(pattern) || !catId) return toast('A rule needs some text to look for and a category.');
+    const r = { id: 'r' + P.cyrb53(pattern + '|' + direction + '|' + Date.now()), pattern, category_id: catId, direction, display_name: displayName.trim() };
     S.rules.push(r);
-    await save('rules', [ruleRow(r)]);
-    const n = await applyRules(true);
-    toast(`Rule saved.${n ? ` ${n} transaction${n === 1 ? '' : 's'} sorted.` : ''}`);
+    render();
+    try { await save('rules', [ruleRow(r)]); } catch { S.rules = S.rules.filter(x => x !== r); render(); return; }
+    await applyRules({ only: r, label: 'Rule saved.' });
   }
-  async function applyRules(silent) {
+  // Re-sort transactions by rules. Overwrites earlier categories, with an Undo.
+  async function applyRules({ only = null, label = '' } = {}) {
     const changed = [];
     for (const t of S.transactions) {
-      if (catById(t.category_id)) continue;
-      const c = autoCategory(t);
-      if (c) { t.category_id = c; changed.push(t); }
+      if (isCardPmt(t)) continue;
+      const r = winningRule(t);
+      if (!r || (only && r.id !== only.id) || t.category_id === r.category_id) continue;
+      changed.push([t, t.category_id]);
+      t.category_id = r.category_id;
     }
-    if (changed.length) await save('transactions', changed.map(txRow));
     render();
-    if (!silent) toast(changed.length ? `${changed.length} transaction${changed.length === 1 ? '' : 's'} sorted.` : 'No uncategorized transactions match a rule.');
-    return changed.length;
+    if (changed.length) await save('transactions', changed.map(([t]) => txRow(t)));
+    const n = changed.length;
+    const msg = `${label ? label + ' ' : ''}${n ? `${n} transaction${n === 1 ? '' : 's'} updated.` : only ? 'No other transactions needed changing.' : 'Everything already matches your rules.'}`;
+    toast(msg, n ? [{ label: 'Undo', run: async () => {
+      changed.forEach(([t, old]) => t.category_id = old);
+      render(); await save('transactions', changed.map(([t]) => txRow(t))); toast('Changes undone.');
+    } }] : [], n ? 9000 : 4000);
+    return n;
+  }
+  async function updateRule(r, field, value) {
+    const before = { ...r };
+    r[field] = value;
+    if (field === 'pattern' && !squash(value)) { r.pattern = before.pattern; render(); return toast('A rule needs some text to look for.'); }
+    try { await save('rules', [ruleRow(r)]); } catch { Object.assign(r, before); render(); return; }
+    if (field === 'display_name') { render(); return toast('Name updated.', [], 2000); }
+    await applyRules({ only: r, label: 'Rule updated.' });
   }
 
   // ---------- events ----------
@@ -517,7 +577,8 @@
         return;
       }
     }
-    if (el.id === 'rerun') { el.disabled = true; await applyRules(false); return; }
+    if (el.id === 'clearRule') { S.filter.rule = null; S.filter.allMonths = false; render(); return; }
+    if (el.id === 'rerun') { el.disabled = true; await applyRules(); return; }
 
     // import
     if (el.dataset.acct) { S.importAccount = el.dataset.acct; S.pasteText = $('#paste').value; S.preview = null; render(); return; }
@@ -559,7 +620,11 @@
     }
 
     // rules
-    if (el.id === 'nrAdd') { await addRule($('#nrPat').value, $('#nrCat').value, $('#nrDir').value); return; }
+    if (el.id === 'nrAdd') {
+      const catId = document.querySelector('[data-combo="nr"]').dataset.value;
+      await addRule($('#nrPat').value, catId, $('#nrDir').value, $('#nrName').value); return;
+    }
+    if (el.dataset.rsee) { e.preventDefault(); const r = S.rules.find(x => x.id === el.dataset.rsee); S.filter = { q: '', account: '', cat: '', allMonths: true, rule: r.id }; S.tab = 'transactions'; render(); window.scrollTo(0, 0); return; }
     if (el.hasAttribute('data-rdel')) {
       const id = el.closest('tr').dataset.rid; const r = S.rules.find(x => x.id === id);
       S.rules = S.rules.filter(x => x.id !== id); render(); await del('rules', [id]);
@@ -569,7 +634,6 @@
 
   document.addEventListener('change', async e => {
     const el = e.target;
-    if (el.hasAttribute('data-setcat')) { const t = S.transactions.find(x => x.id === el.closest('.tx').dataset.id); await setCategory(t, el.value); return; }
     if (el.id === 'facct') { S.filter.account = el.value; render(); return; }
     if (el.id === 'fcat') { S.filter.cat = el.value; render(); return; }
     if (el.id === 'fall') { S.filter.allMonths = el.checked; render(); return; }
@@ -578,8 +642,7 @@
       S.pasteText = await f.text(); buildPreview(S.pasteText); render(); return;
     }
     if (el.hasAttribute('data-inc')) { S.preview.rows[+el.closest('tr').dataset.i].include = el.checked; render(); return; }
-    if (el.hasAttribute('data-pvcat')) { S.preview.rows[+el.closest('tr').dataset.i].category_id = el.value || null; return; }
-    if (el.hasAttribute('data-rcat')) { const r = S.rules.find(x => x.id === el.closest('tr').dataset.rid); r.category_id = el.value; await save('rules', [ruleRow(r)]); toast('Rule updated.'); return; }
+    if (el.dataset.rf) { const r = S.rules.find(x => x.id === el.closest('tr').dataset.rid); await updateRule(r, el.dataset.rf, el.dataset.rf === 'direction' ? el.value : el.value.trim()); return; }
     const tr = el.closest('tr[data-cid]');
     if (tr && el.dataset.f) {
       const c = catById(tr.dataset.cid); const f = el.dataset.f;
@@ -612,8 +675,135 @@
 
   let qTimer;
   document.addEventListener('input', e => {
+    if (e.target.id === 'nrPat') {
+      const probe = { pattern: e.target.value, direction: $('#nrDir').value };
+      const n = squash(probe.pattern) ? S.transactions.filter(t => ruleMatches(probe, t)).length : 0;
+      $('#nrCount').textContent = squash(probe.pattern) ? `Matches ${n} transaction${n === 1 ? '' : 's'} so far.` : '\u00a0';
+      return;
+    }
     if (e.target.id === 'fq') { clearTimeout(qTimer); qTimer = setTimeout(() => { S.filter.q = e.target.value; S._focusSearch = true; render(); }, 200); }
   });
+
+  // ---------- category combo box ----------
+  const CB = { input: null, wrap: null, items: [], hi: -1, orig: '', typed: false };
+  const listEl = document.createElement('ul');
+  listEl.id = 'comboList'; listEl.className = 'combo-list'; listEl.setAttribute('role', 'listbox'); listEl.hidden = true;
+  document.body.appendChild(listEl);
+
+  function comboMatches(q) {
+    const cats = S.categories.filter(c => !c.archived);
+    q = q.trim().toLowerCase();
+    if (!q) return cats;
+    const score = c => {
+      const n = c.name.toLowerCase(), g = (c.grp || '').toLowerCase();
+      if (n.startsWith(q)) return 0;
+      if (n.split(/[\s&/-]+/).some(w => w.startsWith(q))) return 1;
+      if (n.includes(q)) return 2;
+      if (g.includes(q)) return 3;
+      return 9;
+    };
+    return cats.map(c => [score(c), c]).filter(x => x[0] < 9).sort((x, y) => x[0] - y[0]).map(x => x[1]);
+  }
+  function comboOpen(input, q) {
+    CB.input = input; CB.wrap = input.closest('.combo');
+    const filtering = q != null && q !== '';
+    const cats = comboMatches(filtering ? q : '');
+    CB.items = [{ id: '', name: CB.wrap.dataset.combo === 'pv' ? 'Leave for later' : 'No category' }, ...cats];
+    if (filtering) CB.items = cats;
+    const cur = CB.wrap.dataset.value;
+    CB.hi = filtering ? (cats.length ? 0 : -1) : Math.max(0, CB.items.findIndex(c => c.id === cur));
+    let lastGrp = null;
+    listEl.innerHTML = CB.items.length ? CB.items.map((c, i) => {
+      let head = '';
+      if (!filtering && c.id && c.grp !== lastGrp) { head = `<li class="combo-grp" role="presentation">${esc(c.grp)}</li>`; lastGrp = c.grp; }
+      return head + `<li role="option" id="cbo-${i}" data-i="${i}" class="${i === CB.hi ? 'hi' : ''} ${c.id === cur ? 'cur' : ''} ${c.id ? '' : 'none'}" aria-selected="${i === CB.hi}">${esc(c.name)}${filtering && c.grp ? `<small>${esc(c.grp)}</small>` : ''}</li>`;
+    }).join('') : `<li class="combo-empty">No category matches "${esc(q)}"</li>`;
+    listEl.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    comboPlace(); comboScroll();
+  }
+  function comboPlace() {
+    if (!CB.input || listEl.hidden) return;
+    const r = CB.wrap.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom;
+    const h = Math.min(320, Math.max(below, r.top) - 12);
+    listEl.style.width = Math.max(r.width, 220) + 'px';
+    listEl.style.left = Math.min(r.left, window.innerWidth - Math.max(r.width, 220) - 8) + 'px';
+    listEl.style.maxHeight = h + 'px';
+    if (below < 200 && r.top > below) { listEl.style.top = ''; listEl.style.bottom = (window.innerHeight - r.top + 4) + 'px'; }
+    else { listEl.style.bottom = ''; listEl.style.top = (r.bottom + 4) + 'px'; }
+  }
+  function comboScroll() {
+    listEl.querySelectorAll('li[role=option]').forEach(li => { const on = +li.dataset.i === CB.hi; li.classList.toggle('hi', on); li.setAttribute('aria-selected', on); });
+    const li = listEl.querySelector(`#cbo-${CB.hi}`);
+    if (li) { li.scrollIntoView({ block: 'nearest' }); CB.input.setAttribute('aria-activedescendant', li.id); }
+  }
+  function comboClose(restore) {
+    if (!CB.input) return;
+    if (restore) CB.input.value = CB.orig;
+    CB.input.setAttribute('aria-expanded', 'false'); CB.input.removeAttribute('aria-activedescendant');
+    listEl.hidden = true; CB.input = null; CB.wrap = null; CB.typed = false;
+  }
+  async function comboPick(i, viaKeyboard) {
+    const item = CB.items[i]; if (!item) return;
+    const wrap = CB.wrap; const input = CB.input;
+    input.value = item.id ? item.name : '';
+    CB.orig = input.value;
+    comboClose(false);
+    if (wrap.dataset.value === item.id) return;
+    wrap.dataset.value = item.id;
+    input.classList.toggle('empty', !item.id);
+    if (wrap.dataset.combo === 'nr') return;
+    if (wrap.dataset.combo === 'rule') { const r = S.rules.find(x => x.id === wrap.closest('tr').dataset.rid); if (item.id) await updateRule(r, 'category_id', item.id); else render(); return; }
+    if (wrap.dataset.combo === 'pv') {
+      S.preview.rows[+wrap.closest('tr').dataset.i].category_id = item.id || null;
+      return;
+    }
+    const row = wrap.closest('.tx');
+    const nextRow = row.nextElementSibling && row.nextElementSibling.classList.contains('tx') ? row.nextElementSibling.dataset.id : null;
+    const t = S.transactions.find(x => x.id === row.dataset.id);
+    const p = setCategory(t, item.id);
+    if (viaKeyboard && nextRow) { const n = document.querySelector(`.tx[data-id="${nextRow}"] .combo-input`); if (n) n.focus(); }
+    await p;
+  }
+
+  document.addEventListener('focusin', e => {
+    if (!e.target.classList.contains('combo-input')) return;
+    CB.orig = e.target.value;
+    e.target.select();
+    comboOpen(e.target);
+  });
+  document.addEventListener('focusout', e => {
+    if (e.target === CB.input) comboClose(true);
+  });
+  document.addEventListener('input', e => {
+    if (!e.target.classList.contains('combo-input')) return;
+    CB.typed = true; comboOpen(e.target, e.target.value);
+  });
+  document.addEventListener('keydown', e => {
+    const input = e.target;
+    if (!input.classList || !input.classList.contains('combo-input')) return;
+    if (listEl.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { comboOpen(input); e.preventDefault(); return; }
+    if (e.key === 'ArrowDown') { CB.hi = Math.min(CB.items.length - 1, CB.hi + 1); comboScroll(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { CB.hi = Math.max(0, CB.hi - 1); comboScroll(); e.preventDefault(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (CB.hi >= 0) comboPick(CB.hi, true); }
+    else if (e.key === 'Escape') { comboClose(true); input.blur(); }
+    else if (e.key === 'Tab' && CB.typed && CB.hi >= 0) { comboPick(CB.hi, false); }
+  });
+  listEl.addEventListener('mousedown', e => e.preventDefault()); // keep focus in the box
+  listEl.addEventListener('click', e => {
+    const li = e.target.closest('li[role=option]');
+    if (li) comboPick(+li.dataset.i, false);
+  });
+  document.addEventListener('mousedown', e => {
+    const b = e.target.closest('.combo-btn'); if (!b) return;
+    e.preventDefault();
+    const input = b.closest('.combo').querySelector('.combo-input');
+    if (CB.input === input && !listEl.hidden) { comboClose(true); input.blur(); return; }
+    if (document.activeElement === input) comboOpen(input); else input.focus();
+  });
+  window.addEventListener('scroll', () => comboPlace(), true);
+  window.addEventListener('resize', () => comboPlace());
 
   // ---------- login ----------
   function logout() { localStorage.removeItem('hl_pass'); S.pass = ''; $('#app').hidden = true; $('#login').hidden = false; }

@@ -33,6 +33,7 @@
   button, input, select, textarea { font: inherit; color: inherit; }
   :focus-visible { outline: 2px solid var(--lake); outline-offset: 2px; }
   [hidden] { display: none !important; }
+  a { color: var(--lake); }
 
   /* ---------- frame ---------- */
   .top { background: var(--ink); color: #F2F6F4; position: sticky; top: 0; z-index: 5; padding-top: env(safe-area-inset-top); }
@@ -125,8 +126,21 @@
   .tx-date { color: var(--muted); font-size: 13px; }
   .tx-payee { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; background: none; border: 0; padding: 0; text-align: left; }
   .tx-acct { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
-  .tx select { width: 100%; }
-  .tx select.empty { border-color: var(--cran); background: var(--cran-soft); }
+  /* Category combo box: type to search, ▾ for the full list */
+  .combo { position: relative; display: flex; min-width: 0; }
+  .combo-input { width: 100%; padding-right: 30px !important; }
+  .combo-input.empty { border-color: var(--cran); background: var(--cran-soft); }
+  .combo-input.empty::placeholder { color: var(--cran); }
+  .combo-btn { position: absolute; right: 1px; top: 1px; bottom: 1px; width: 28px; border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: 13px; }
+  .combo-btn:hover { color: var(--ink); background: var(--bg); }
+  .combo-list { position: fixed; z-index: 30; margin: 0; padding: 4px 0; list-style: none; background: #fff; border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: 0 8px 28px rgba(27,42,47,.18); overflow-y: auto; }
+  .combo-list li[role=option] { padding: 7px 12px; cursor: pointer; display: flex; justify-content: space-between; gap: 10px; }
+  .combo-list li[role=option] small { color: var(--muted); font-size: 12px; }
+  .combo-list li.hi { background: var(--lake-soft); }
+  .combo-list li.cur { font-weight: 600; }
+  .combo-list li.none { color: var(--muted); font-style: italic; }
+  .combo-grp { padding: 8px 12px 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .combo-empty { padding: 8px 12px; color: var(--muted); }
   .tx-more { grid-column: 1 / -1; background: var(--bg); border-radius: var(--r-sm); padding: 10px 12px; font-size: 13px; display: grid; gap: 8px; }
   .tx-more code { word-break: break-all; }
   .daygap { padding: 30px; text-align: center; color: var(--muted); }
@@ -151,6 +165,13 @@
   .scroll { overflow-x: auto; }
 
   /* ---------- budget & rules ---------- */
+  .rule-new { display: grid; grid-template-columns: 1.3fr 1.1fr .9fr 1.3fr auto; gap: 10px; align-items: end; }
+  .rule-new label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; color: var(--ink); }
+  .rule-new input, .rule-new select { width: 100%; font-weight: 400; }
+  .rt input[type=text] { width: 100%; min-width: 130px; }
+  .rt td { vertical-align: middle; }
+  .rt .combo { min-width: 180px; }
+  @media (max-width: 720px) { .rule-new { grid-template-columns: 1fr 1fr; } .rule-new .btn { grid-column: 1 / -1; } }
   .bt input[type=number] { width: 110px; text-align: right; }
   .bt input[type=text] { width: 100%; }
   .bt td:first-child { min-width: 170px; }
@@ -169,7 +190,8 @@
     .filters input { grid-column: 1 / -1; }
     .tx { grid-template-columns: 1fr auto; gap: 4px 10px; }
     .tx-date { grid-column: 1 / -1; }
-    .tx select { grid-column: 1 / -1; }
+    .tx .combo { grid-column: 1 / -1; }
+    .combo-input { font-size: 16px; } /* stops iPhone zooming in */
     .env { grid-template-columns: 1fr auto; }
     .env .track { grid-column: 1 / -1; grid-row: 2; }
     .ledger-line div + div { padding-left: 10px; }

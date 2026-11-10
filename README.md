@@ -52,11 +52,20 @@ Re-importing an overlapping date range is safe: rows already in the ledger are s
 
 **Paychecks that arrive as transfers.** Transfers between accounts normally don't count as income. A rule overrides that: the starter rule counts transfers in from Derek's Everyday Checking as Paychecks. If you mark another transfer as Paychecks, the app offers to remember that exact account.
 
-**Categorize.** On Transactions, pick a category. The app offers to remember that store, which creates a rule, sorts any other matching transactions, and categorizes it automatically on future imports.
+**Categorize.** On Transactions, type in the category box (or click ▾ for the list). The app offers to make a rule for that store.
+
+**Rules.** A rule says "descriptions containing *amazon* are Shopping, shown as *Amazon*." Rules apply to every transaction, past and future, and overwrite earlier categories (each change has an Undo). Capitals, spaces, and punctuation don't matter. The banks' own categories are ignored. Click a rule's match count to see exactly which transactions it covers.
 
 **Budget.** Set a monthly amount per category. Use "This month" for one-off changes like December gifts. The 3-month average helps set realistic numbers.
 
 **Overview.** Each category shows a bar of what's spent, and a tick mark for where you'd be at an even pace for today's date. Orange means ahead of pace; red means over budget. Tap a category to see its transactions.
+
+## Update the database (one time, November 2026)
+Rules gained a "Show as" name. If your database was set up before this, open Supabase → SQL Editor, run this line, and click Run:
+
+```sql
+alter table rules add column if not exists display_name text not null default '';
+```
 
 ## Good to know
 - Supabase's free tier pauses a project after about a week with no use. If the app says it can't load, open supabase.com and click **Restore project**.
