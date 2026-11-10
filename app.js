@@ -87,8 +87,10 @@
   function autoCategory(t) {
     const type = (ACCOUNTS[t.account] || {}).type;
     if (P.isCardPayment(t, type) && catById('cc-payment')) return 'cc-payment';
+    const byRule = ruleFor(t); // a rule can claim a transfer, e.g. a paycheck moved in from another account
+    if (byRule) return byRule;
     if (P.isTransfer(t) && catById('transfer')) return 'transfer';
-    return ruleFor(t) || bankCategoryFor(t);
+    return bankCategoryFor(t);
   }
   // Capital One's own category column, used only when no rule matches.
   const BANK_CATEGORIES = {
@@ -214,9 +216,10 @@
     const T = monthTotals(S.month);
     const pace = paceFraction(S.month);
     const net = T.income - T.spent;
+    const expectedIn = S.categories.filter(c => c.kind === 'income' && !c.archived).reduce((s, c) => s + budgetFor(c, S.month), 0);
     let html = `<h2>${esc(monthLabel(S.month))}</h2>
       <div class="ledger-line">
-        <div><span>Money in</span><strong class="in money">${fmt0(T.income)}</strong></div>
+        <div><span>Money in</span><strong class="in money">${fmt0(T.income)}</strong>${expectedIn ? `<small class="exp">of ${fmt0(expectedIn)} expected</small>` : ''}</div>
         <div><span>Spent</span><strong class="money">${fmt0(T.spent)}</strong></div>
         <div><span>${net >= 0 ? 'Left over' : 'Short'}</span><strong class="money ${net < 0 ? 'over' : ''}">${fmt0(Math.abs(net))}</strong></div>
       </div>`;
@@ -255,9 +258,23 @@
     if (anyBudget) html += `<div class="legend"><span><i class="track" style="width:28px;height:8px;display:inline-block;position:relative"><i class="fill" style="width:60%"></i></i>Spent so far</span>${pace > 0 && pace < 1 ? '<span><i style="width:2px;height:12px;background:var(--ink)"></i>Even pace for today</span><span><i style="width:12px;height:8px;background:#C9853A;border-radius:3px"></i>Ahead of pace</span>' : ''}</div>`;
     else if (T.count) html += `<p class="sub" style="margin-top:20px">Set monthly amounts on the <a href="#" data-go="budget">Budget</a> tab to see how much is left in each category.</p>`;
 
-    const incomeCats = S.categories.filter(c => c.kind === 'income' && T.byCat[c.id]);
+    const incomeCats = S.categories.filter(c => c.kind === 'income' && (T.byCat[c.id] || (!c.archived && budgetFor(c, S.month))));
     if (incomeCats.length) {
-      html += `<h3>Money in</h3><table><tbody>${incomeCats.map(c => `<tr class="env-link" data-cat="${esc(c.id)}"><td>${esc(c.name)}</td><td class="num in money">${fmt(T.byCat[c.id])}</td></tr>`).join('')}</tbody></table>`;
+      html += `<section class="env-group"><h3>Money in <small>${fmt0(T.income)}${expectedIn ? ' of ' + fmt0(expectedIn) : ''}</small></h3>`;
+      for (const c of incomeCats) {
+        const got = T.byCat[c.id] || 0; const exp = budgetFor(c, S.month);
+        if (exp) {
+          const pct = Math.max(0, Math.min(1, got / exp)); const diff = exp - got;
+          html += `<div class="env" data-cat="${esc(c.id)}" title="See ${esc(c.name)} transactions">
+            <span class="env-name">${esc(c.name)}</span>
+            <div class="track"><div class="fill inc" style="width:${(pct * 100).toFixed(1)}%"></div></div>
+            <span class="env-figs"><span class="left">${diff > 0.5 ? fmt0(diff) + ' to come' : diff < -0.5 ? fmt0(-diff) + ' extra' : 'All in'}</span><span class="of">${fmt0(got)} of ${fmt0(exp)}</span></span>
+          </div>`;
+        } else {
+          html += `<div class="env" data-cat="${esc(c.id)}"><span class="env-name">${esc(c.name)}</span><span class="nobudget">No amount expected</span><span class="env-figs"><span class="left in">${fmt0(got)}</span><span class="of">received</span></span></div>`;
+        }
+      }
+      html += `</section>`;
     }
     return html;
   }
@@ -374,10 +391,10 @@
     const k = S.month;
     const prev = [1, 2, 3].map(n => monthTotals(shiftMonth(k, -n)));
     let html = `<h2>Budget for ${esc(monthLabel(k))}</h2>
-      <p class="sub">The monthly amount carries into every month. Change "This month" when one month needs something different, like December gifts.</p>`;
+      <p class="sub">The monthly amount carries into every month. Change "This month" when one month is different, like December gifts or a three-paycheck month.</p>`;
     const groups = {};
     S.categories.filter(c => !c.archived).forEach(c => (groups[c.grp] = groups[c.grp] || []).push(c));
-    let totalB = 0;
+    let totalB = 0, totalI = 0;
     for (const [g, cs] of Object.entries(groups)) {
       html += `<h3>${esc(g)}</h3><div class="scroll"><table class="bt"><thead><tr><th>Category</th><th>Group</th><th class="num">Monthly</th><th class="num">This month</th><th class="num">3-month avg</th><th></th></tr></thead><tbody>`;
       for (const c of cs) {
@@ -385,11 +402,12 @@
         const avg = prev.reduce((s, t) => s + (t.byCat[c.id] || 0), 0) / 3;
         const shown = c.kind === 'expense' ? -avg : avg;
         if (c.kind === 'expense') totalB += budgetFor(c, k);
+        if (c.kind === 'income') totalI += budgetFor(c, k);
         html += `<tr data-cid="${esc(c.id)}">
           <td><input type="text" data-f="name" value="${esc(c.name)}" aria-label="Category name"></td>
           <td><input type="text" data-f="grp" value="${esc(c.grp)}" aria-label="Group" list="grpList"></td>
-          <td class="num">${c.kind === 'expense' ? `<input type="number" step="1" min="0" data-f="budget" value="${c.budget || ''}" placeholder="0" aria-label="Monthly budget">` : '<span class="muted small">' + (c.kind === 'income' ? 'Income' : 'Not counted') + '</span>'}</td>
-          <td class="num">${c.kind === 'expense' ? `<input type="number" step="1" min="0" data-f="override" value="${o ? o.amount : ''}" placeholder="${c.budget || 0}" aria-label="This month only">` : ''}</td>
+          <td class="num">${c.kind !== 'transfer' ? `<input type="number" step="1" min="0" data-f="budget" value="${c.budget || ''}" placeholder="0" aria-label="${c.kind === 'income' ? 'Expected each month' : 'Monthly budget'}">` : '<span class="muted small">Not counted</span>'}</td>
+          <td class="num">${c.kind !== 'transfer' ? `<input type="number" step="1" min="0" data-f="override" value="${o ? o.amount : ''}" placeholder="${c.budget || 0}" aria-label="This month only">` : ''}</td>
           <td class="num money muted">${shown ? fmt0(shown) : '—'}</td>
           <td><button class="btn quiet danger" data-archive title="Hide this category">Hide</button></td>
         </tr>`;
@@ -398,7 +416,12 @@
     }
     html += `<datalist id="grpList">${[...new Set(S.categories.map(c => c.grp))].map(g => `<option value="${esc(g)}">`).join('')}</datalist>
       <div class="panel" style="margin-top:24px">
-        <div class="row" style="justify-content:space-between"><b>Total monthly spending budget: ${fmt0(totalB)}</b></div>
+        <div class="plan-line">
+          <div><span>Expected income</span><strong class="money in">${fmt0(totalI)}</strong></div>
+          <div><span>Spending budget</span><strong class="money">${fmt0(totalB)}</strong></div>
+          <div><span>${totalI - totalB >= 0 ? 'Planned left over' : 'Planned shortfall'}</span><strong class="money ${totalI - totalB < 0 ? 'over' : ''}">${fmt0(Math.abs(totalI - totalB))}</strong></div>
+        </div>
+        <p class="small muted" style="margin:6px 0 0">For ${esc(monthLabel(k))}, using "This month" amounts where you've set them.</p>
         <h3 style="margin-top:16px">Add a category</h3>
         <div class="row"><input type="text" id="ncName" placeholder="Name, like Lake cabin"><input type="text" id="ncGrp" placeholder="Group" list="grpList">
         <select id="ncKind"><option value="expense">Spending</option><option value="income">Income</option><option value="transfer">Not counted (moving money)</option></select>

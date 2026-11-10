@@ -141,5 +141,7 @@ insert into rules (id, pattern, category_id, direction) values
   ('r-chipotle',  'CHIPOTLE',         'dining',        'out'),
   ('r-culvers',   'CULVERS',          'dining',        'out'),
   ('r-mcd',       'MCDONALD',         'dining',        'out'),
-  ('r-pethosp',   'PETHOSPITAL',      'pets',          'out')
+  ('r-pethosp',   'PETHOSPITAL',      'pets',          'out'),
+  -- Derek's pay arrives as a transfer from his Everyday Checking account
+  ('r-paytransfer','TRANSFER FROM TRONSGARD D EVERYDAY CHECKING', 'paychecks', 'in')
 on conflict (id) do nothing;

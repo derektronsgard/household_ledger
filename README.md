@@ -50,6 +50,8 @@ Re-importing an overlapping date range is safe: rows already in the ledger are s
 
 **Capital One card.** The Overview page has a card section for the month: what was charged, what was paid, and the amount to pay to bring the balance to $0. Enter the balance from the Capital One app once (with its date) so the number is exact; after that it stays current as you import. Capital One rows are marked with a purple stripe on the Transactions page.
 
+**Paychecks that arrive as transfers.** Transfers between accounts normally don't count as income. A rule overrides that: the starter rule counts transfers in from Derek's Everyday Checking as Paychecks. If you mark another transfer as Paychecks, the app offers to remember that exact account.
+
 **Categorize.** On Transactions, pick a category. The app offers to remember that store, which creates a rule, sorts any other matching transactions, and categorizes it automatically on future imports.
 
 **Budget.** Set a monthly amount per category. Use "This month" for one-off changes like December gifts. The 3-month average helps set realistic numbers.

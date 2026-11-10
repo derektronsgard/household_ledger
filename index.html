@@ -107,6 +107,11 @@
   .fill { position: absolute; inset: 0 auto 0 0; border-radius: 6px; background: var(--lake); }
   .fill.hot { background: #C9853A; }
   .fill.over { background: var(--cran); }
+  .fill.inc { background: var(--spruce); }
+  .ledger-line small.exp { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .plan-line { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .plan-line span { display: block; color: var(--muted); font-size: 13px; }
+  .plan-line strong { font: 700 22px/1.15 var(--display); }
   .pace { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); border-radius: 1px; }
   .nobudget { font-size: 13px; color: var(--muted); }
   .legend { display: flex; gap: 18px; color: var(--muted); font-size: 13px; margin-top: 4px; flex-wrap: wrap; }
@@ -168,7 +173,7 @@
     .env { grid-template-columns: 1fr auto; }
     .env .track { grid-column: 1 / -1; grid-row: 2; }
     .ledger-line div + div { padding-left: 10px; }
-    .card-figs strong { font-size: 17px; }
+    .card-figs strong, .plan-line strong { font-size: 17px; }
     .card-panel { padding: 14px; }
     .top-inner { padding: 10px 12px 0; gap: 8px; }
     .brand { font-size: 17px; }

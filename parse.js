@@ -276,6 +276,8 @@
 
   // A short piece of the description that identifies the store, used when making a rule.
   function merchantKey(d) {
+    const c = cleanDesc(d);
+    if (/TRANSFER (FROM|TO) /.test(c)) return c; // keep "from which account" so savings and pay transfers stay separate
     const cw = cleanDesc(d).replace(/[,:]/g, ' ').split(' ').filter(w => /[A-Z]/.test(w) && !/\d{2}/.test(w));
     const weak = w => w.length < 3 || /^(THE|AND|OF|INC|LLC|CO|MN|US)$/.test(w);
     const n = cw.length > 2 && (weak(cw[0]) || weak(cw[1])) ? 3 : 2;
