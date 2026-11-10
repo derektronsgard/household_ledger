@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1B2A2F">
+<meta name="robots" content="noindex, nofollow">
+<title>Household Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #EAEFEC;        /* birch grey */
+    --paper: #FFFFFF;
+    --ink: #1B2A2F;       /* deep lake night */
+    --muted: #5C6D71;
+    --line: #D3DCD8;
+    --lake: #2C6E8E;      /* accent */
+    --lake-soft: #DCEAF1;
+    --spruce: #2F6B4F;    /* money in, under budget */
+    --cran: #A3324A;      /* over budget */
+    --cran-soft: #F6E3E7;
+    --track: #DFE6E3;
+    --card: #5B4B8A;      /* the Capital One card */
+    --display: 'Bricolage Grotesque', system-ui, sans-serif;
+    --body: 'Public Sans', system-ui, sans-serif;
+    --r-sm: 6px; --r-lg: 14px;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); font-variant-numeric: tabular-nums; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--lake); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+
+  /* ---------- frame ---------- */
+  .top { background: var(--ink); color: #F2F6F4; position: sticky; top: 0; z-index: 5; padding-top: env(safe-area-inset-top); }
+  .top-inner { max-width: 980px; margin: 0 auto; padding: 14px 20px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+  .brand { font: 700 20px/1 var(--display); letter-spacing: -0.01em; margin-right: auto; }
+  .month { display: flex; align-items: center; gap: 4px; }
+  .month b { font: 500 17px/1 var(--display); min-width: 150px; text-align: center; }
+  .month button { background: none; border: 1px solid #3C4E54; color: inherit; width: 34px; height: 34px; border-radius: 50%; cursor: pointer; font-size: 18px; line-height: 1; }
+  .month button:hover { background: #2A3C42; }
+  nav.tabs { width: 100%; display: flex; gap: 2px; overflow-x: auto; }
+  nav.tabs button { background: none; border: 0; color: #A9BABC; padding: 10px 14px 12px; cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; font-weight: 500; }
+  nav.tabs button[aria-current="page"] { color: #fff; border-bottom-color: #7FB6CF; }
+  nav.tabs .badge { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 6px; border-radius: 10px; background: var(--cran); color: #fff; font-size: 12px; line-height: 20px; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 20px 120px; }
+  h2 { font: 700 26px/1.15 var(--display); letter-spacing: -0.015em; margin: 0 0 4px; }
+  h3 { font: 700 17px/1.2 var(--display); margin: 28px 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 20px; max-width: 64ch; }
+  .panel { background: var(--paper); border-radius: var(--r-lg); padding: 18px 20px; border: 1px solid var(--line); }
+
+  /* ---------- controls ---------- */
+  .btn { border: 1px solid var(--line); background: var(--paper); border-radius: var(--r-sm); padding: 8px 14px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--lake); border-color: var(--lake); color: #fff; }
+  .btn.primary:hover { background: #245B76; }
+  .btn.quiet { border-color: transparent; background: none; color: var(--lake); padding-left: 6px; padding-right: 6px; }
+  .btn.danger { color: var(--cran); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  input[type=text], input[type=search], input[type=password], input[type=number], select, textarea {
+    border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; padding: 8px 10px; min-width: 0;
+  }
+  textarea { width: 100%; min-height: 200px; resize: vertical; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; background: #fff; }
+  .seg button { border: 0; background: none; padding: 9px 16px; cursor: pointer; font-weight: 600; color: var(--muted); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+  .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .in { color: var(--spruce); }
+  .over { color: var(--cran); }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+
+  /* ---------- overview ---------- */
+  .ledger-line { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 2px solid var(--ink); border-bottom: 1px solid var(--line); margin: 6px 0 22px; }
+  .ledger-line div { padding: 12px 0; }
+  .ledger-line div + div { padding-left: 18px; border-left: 1px solid var(--line); }
+  .ledger-line span { display: block; color: var(--muted); font-size: 13px; }
+  .ledger-line strong { font: 700 clamp(20px, 4vw, 30px)/1.1 var(--display); letter-spacing: -0.01em; }
+  /* Credit card panel */
+  .card-panel { background: var(--paper); border: 1px solid var(--line); border-left: 6px solid var(--card); border-radius: var(--r-lg); padding: 16px 20px; margin: 0 0 20px; }
+  .card-figs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0 6px; }
+  .card-figs span { display: block; color: var(--muted); font-size: 13px; }
+  .card-figs strong { font: 700 22px/1.15 var(--display); }
+  .card-figs small { display: block; color: var(--muted); font-size: 12px; }
+  .card-figs .owed { color: var(--card); }
+  .pay-line { margin: 8px 0 6px; font-size: 16px; }
+  .anchor-form { margin: 8px 0; }
+  .tx.tx-card { box-shadow: inset 4px 0 0 var(--card); background: #F7F5FB; }
+  .tx.tx-card .tx-acct { color: var(--card); font-weight: 600; }
+  .notice { display: flex; align-items: center; gap: 12px; justify-content: space-between; background: var(--lake-soft); border-radius: var(--r-sm); padding: 10px 14px; margin-bottom: 18px; }
+
+  /* Envelope rows: the bar is the month's money; the tick is where you'd be at an even pace. */
+  .env-group { margin-bottom: 8px; }
+  .env-group h3 { display: flex; justify-content: space-between; align-items: baseline; margin: 22px 0 6px; }
+  .env-group h3 small { font: 500 13px var(--body); color: var(--muted); }
+  .env { display: grid; grid-template-columns: minmax(120px, 1.1fr) 2fr minmax(96px, auto); gap: 4px 16px; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); cursor: pointer; }
+  .env:hover .env-name { color: var(--lake); }
+  .env-name { font-weight: 600; }
+  .env-figs { text-align: right; }
+  .env-figs .left { display: block; font-weight: 600; }
+  .env-figs .of { font-size: 12px; color: var(--muted); }
+  .track { position: relative; height: 12px; background: var(--track); border-radius: 6px; }
+  .fill { position: absolute; inset: 0 auto 0 0; border-radius: 6px; background: var(--lake); }
+  .fill.hot { background: #C9853A; }
+  .fill.over { background: var(--cran); }
+  .pace { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); border-radius: 1px; }
+  .nobudget { font-size: 13px; color: var(--muted); }
+  .legend { display: flex; gap: 18px; color: var(--muted); font-size: 13px; margin-top: 4px; flex-wrap: wrap; }
+  .legend i { display: inline-block; vertical-align: -2px; margin-right: 6px; }
+
+  /* ---------- transactions ---------- */
+  .filters { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .txlist { background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-lg); }
+  .tx { display: grid; grid-template-columns: 58px 1fr auto 190px; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
+  .tx:first-child { border-top: 0; }
+  .tx-date { color: var(--muted); font-size: 13px; }
+  .tx-payee { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; background: none; border: 0; padding: 0; text-align: left; }
+  .tx-acct { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+  .tx select { width: 100%; }
+  .tx select.empty { border-color: var(--cran); background: var(--cran-soft); }
+  .tx-more { grid-column: 1 / -1; background: var(--bg); border-radius: var(--r-sm); padding: 10px 12px; font-size: 13px; display: grid; gap: 8px; }
+  .tx-more code { word-break: break-all; }
+  .daygap { padding: 30px; text-align: center; color: var(--muted); }
+
+  /* ---------- import ---------- */
+  .steps { display: grid; gap: 18px; }
+  .steps > * { min-width: 0; }
+  td.small { white-space: nowrap; }
+  .help { font-size: 13px; color: var(--muted); }
+  .help summary { cursor: pointer; color: var(--lake); font-weight: 600; }
+  .help ol { padding-left: 18px; margin: 8px 0 0; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 600; font-size: 13px; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td.num, th.num { text-align: right; }
+  .flip { background: none; border: 1px dashed transparent; border-radius: 4px; cursor: pointer; padding: 2px 4px; }
+  .flip:hover { border-color: var(--line); }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+  .tag.new { background: var(--lake-soft); color: var(--lake); }
+  .tag.dup { background: var(--track); color: var(--muted); }
+  .tag.maybe { background: #F8ECD9; color: #8A5A1C; }
+  .scroll { overflow-x: auto; }
+
+  /* ---------- budget & rules ---------- */
+  .bt input[type=number] { width: 110px; text-align: right; }
+  .bt input[type=text] { width: 100%; }
+  .bt td:first-child { min-width: 170px; }
+
+  /* ---------- login, toast ---------- */
+  .login { min-height: 100vh; display: grid; place-items: center; padding: 20px; background: var(--ink); }
+  .login form { background: var(--paper); border-radius: var(--r-lg); padding: 28px; width: min(360px, 100%); display: grid; gap: 12px; }
+  .login h1 { font: 700 26px/1.1 var(--display); margin: 0; }
+  .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--ink); color: #fff; padding: 12px 16px; border-radius: 10px; display: flex; gap: 12px; align-items: center; max-width: calc(100% - 24px); z-index: 20; box-shadow: 0 6px 24px rgba(27,42,47,.25); }
+  .toast .btn { background: #fff; color: var(--ink); border: 0; padding: 6px 12px; }
+  .toast .btn.quiet { background: none; color: #A9C9D8; }
+
+  @media (max-width: 720px) {
+    main { padding: 18px 14px 120px; }
+    .filters { grid-template-columns: 1fr 1fr; }
+    .filters input { grid-column: 1 / -1; }
+    .tx { grid-template-columns: 1fr auto; gap: 4px 10px; }
+    .tx-date { grid-column: 1 / -1; }
+    .tx select { grid-column: 1 / -1; }
+    .env { grid-template-columns: 1fr auto; }
+    .env .track { grid-column: 1 / -1; grid-row: 2; }
+    .ledger-line div + div { padding-left: 10px; }
+    .card-figs strong { font-size: 17px; }
+    .card-panel { padding: 14px; }
+    .top-inner { padding: 10px 12px 0; gap: 8px; }
+    .brand { font-size: 17px; }
+    .month b { min-width: 112px; font-size: 14px; }
+    .month button { width: 30px; height: 30px; }
+    nav.tabs { justify-content: space-between; }
+    nav.tabs button { padding: 8px 6px 10px; font-size: 14px; }
+    nav.tabs .badge { margin-left: 3px; min-width: 18px; padding: 0 4px; font-size: 11px; line-height: 18px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .fill { transition: width .4s ease; }
+  }
+</style>
+</head>
+<body>
+  <div id="login" class="login" hidden>
+    <form id="loginForm">
+      <h1>Household Ledger</h1>
+      <label for="pass" class="muted">Family passcode</label>
+      <input id="pass" type="password" autocomplete="current-password" required>
+      <button class="btn primary" type="submit">Open the ledger</button>
+      <p id="loginErr" class="over small" hidden></p>
+    </form>
+  </div>
+
+  <div id="app" hidden>
+    <header class="top">
+      <div class="top-inner">
+        <div class="brand">Household Ledger</div>
+        <div class="month">
+          <button id="prevMonth" aria-label="Previous month">‹</button>
+          <b id="monthLabel"></b>
+          <button id="nextMonth" aria-label="Next month">›</button>
+        </div>
+        <nav class="tabs" id="tabs">
+          <button data-tab="overview">Overview</button>
+          <button data-tab="transactions">Transactions</button>
+          <button data-tab="import">Import</button>
+          <button data-tab="budget">Budget</button>
+          <button data-tab="rules">Rules</button>
+        </nav>
+      </div>
+    </header>
+    <main id="view"></main>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="parse.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
